@@ -2,244 +2,300 @@
 from __future__ import annotations
 
 import argparse
-import csv
-import io
-import os
+import platform
+import random
 import re
+import shutil
+import subprocess
 import sys
-import time
-from collections import Counter
 from pathlib import Path
 
 import pandas as pd
-import requests
+from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
 
-ALLOWED_AA = set("ACDEFGHIKLMNPQRSTVWY")
-BIN_EDGES = [10, 50, 100, 150, 200]
+BINS = [10, 50, 100, 150, 200]
 BIN_LABELS = ["10-50", "51-100", "101-150", "151-200"]
-LOW_QUALITY_PAT = re.compile(r"(fragment|hypothetical|putative|possible|predicted|LOW\s*QUALITY\s*PROTEIN)", re.I)
-PRECURSOR_PAT = re.compile(r"\b(precursor|propeptide|preprotein|preproprotein|pre-proprotein|proprotein)\b", re.I)
-FALSE_AMP_PAT = re.compile(r"\b(ampC|ampD|ampR|ampS)\b", re.I)
-AMP_PAT = re.compile(
-    "|".join(
-        [
-            r"\bantimicrobial peptide\b",
-            r"\bantimicrobial\b",
-            r"\bantibacterial peptide\b",
-            r"\banti[ -]?bacterial\b",
-            r"\bantifungal peptide\b",
-            r"\banti[ -]?fungal\b",
-            r"\bantiparasitic peptide\b",
-            r"\banti[ -]?parasitic\b",
-            r"\bbacteriocin\b",
-            r"\blantibiotic\b",
-            r"\bmicrocin\b",
-            r"\bthiopeptide\b",
-            r"\bsactipeptide\b",
-            r"\bhost defense peptide\b",
-            r"\bbactericidal\b",
-            r"(?<![A-Za-z])AMP(?![A-Za-z])",
-        ]
-    ),
-    re.I,
-)
+TARGET_SPLIT = {"train": 7700, "val": 990, "test": 2310}
 
 
 def parse_args() -> argparse.Namespace:
-    ap = argparse.ArgumentParser(
-        description="Apply QC, precursor flagging, annotation-based labeling, deduplication, and balancing."
-    )
-    ap.add_argument("--input-csv", required=True, help="01_raw_records.csv from step 01")
+    ap = argparse.ArgumentParser(description="Run CD-HIT and create cluster-intact train/val/test splits.")
+    ap.add_argument("--dataset-csv", required=True, help="dataset.csv from step 02")
     ap.add_argument("--outdir", required=True)
+    ap.add_argument("--cdhit-bin", default="cd-hit", help="CD-HIT executable name")
+    ap.add_argument("--cdhit-id", type=float, default=0.90)
+    ap.add_argument("--cdhit-word", type=int, default=5)
+    ap.add_argument("--cdhit-cov-short", type=float, default=0.80, help="Coverage threshold on the shorter sequence")
     ap.add_argument("--seed", type=int, default=42)
-    ap.add_argument("--target-total", type=int, default=11000)
-    ap.add_argument("--target-per-label", type=int, default=5500)
-    ap.add_argument("--min-len", type=int, default=10)
-    ap.add_argument("--max-len", type=int, default=200)
-    ap.add_argument("--dedup-mode", choices=["ipg", "exact", "none"], default="ipg")
-    ap.add_argument("--fallback-to-exact", action="store_true", help="Fallback to exact-sequence dedup if IPG lookup fails")
-    ap.add_argument("--email", default=os.environ.get("NCBI_EMAIL"), help="NCBI email for IPG lookups")
-    ap.add_argument("--sleep", type=float, default=0.34)
-    ap.add_argument("--ipg-cache", default=None, help="Optional TSV cache for IPG lookups")
     return ap.parse_args()
 
 
-def clean_seq(seq: str) -> str:
-    return re.sub(r"[\s-]", "", str(seq).strip().upper())
+def normalize_label(x: str) -> str:
+    s = str(x).strip().replace("_", "-").replace(" ", "").lower()
+    if s == "amp":
+        return "AMP"
+    if s in {"non-amp", "nonamp", "namp"}:
+        return "non-AMP"
+    return str(x)
 
 
-def score_description(desc: str) -> tuple[int, int, str]:
-    text = re.sub(r"\s+", " ", str(desc or "").strip())
-    informative = 0 if not text else len(re.findall(r"[A-Za-z0-9]+", text))
-    penalty = 1 if LOW_QUALITY_PAT.search(text) else 0
-    return (penalty, -informative, text.lower())
+def load_dataset(path: Path) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    req = {"sequence", "label"}
+    missing = req - set(df.columns)
+    if missing:
+        raise ValueError(f"Missing required columns in dataset: {sorted(missing)}")
+    if "accession_version" not in df.columns:
+        df["accession_version"] = [f"seq_{i+1:06d}" for i in range(len(df))]
+    if "length" not in df.columns:
+        df["length"] = df["sequence"].astype(str).str.len()
+    if "length_bin" not in df.columns:
+        df["length_bin"] = pd.cut(df["length"], bins=BINS, labels=BIN_LABELS, include_lowest=True)
+    df["label"] = df["label"].map(normalize_label)
+    expected_total = sum(TARGET_SPLIT.values())
+    if len(df) != expected_total:
+        raise ValueError(f"Expected {expected_total} sequences for the official split workflow, found {len(df)}")
+    return df.reset_index(drop=True)
 
 
-def classify_qc(row: pd.Series, min_len: int, max_len: int) -> str:
-    seq = row["sequence"]
-    desc = str(row.get("description", "") or "")
-    if not (min_len <= len(seq) <= max_len):
-        return "fail_length"
-    if not seq or any(ch not in ALLOWED_AA for ch in seq):
-        return "fail_noncanonical"
-    if LOW_QUALITY_PAT.search(desc):
-        return "fail_low_quality_annotation"
-    if PRECURSOR_PAT.search(desc):
-        return "flag_precursor"
-    return "pass"
+def write_cdhit_input_fasta(df: pd.DataFrame, path: Path) -> None:
+    records = []
+    for _, row in df.iterrows():
+        header = f"{row['accession_version']}|{row['label']}|len:{row['length']}"
+        records.append(SeqRecord(Seq(str(row["sequence"])), id=header, description=""))
+    SeqIO.write(records, str(path), "fasta")
 
 
-def label_record(row: pd.Series) -> tuple[str, str]:
-    desc = " ".join(
-        [
-            str(row.get("description", "") or ""),
-            str(row.get("cds_products", "") or ""),
-        ]
-    )
-    genes = str(row.get("cds_genes", "") or "")
-    if FALSE_AMP_PAT.search(desc) or FALSE_AMP_PAT.search(genes):
-        return "non-AMP", "false_amp_name"
-    if AMP_PAT.search(desc):
-        return "AMP", "annotation_keyword"
-    return "non-AMP", "no_amp_keyword"
+def resolve_wsl_path(path: Path) -> str:
+    out = subprocess.run(["wsl", "wslpath", "-a", str(path.resolve())], capture_output=True, text=True, check=True)
+    return out.stdout.strip()
 
 
-def read_cache(path: Path) -> dict[str, dict[str, str]]:
-    cache: dict[str, dict[str, str]] = {}
-    if not path.exists():
-        return cache
-    with path.open("r", encoding="utf-8", newline="") as f:
-        reader = csv.DictReader(f, delimiter="	")
-        for row in reader:
-            cache[row["accession_version"]] = row
-    return cache
-
-
-def write_cache(path: Path, cache: dict[str, dict[str, str]]) -> None:
-    fieldnames = ["accession_version", "ipg_id", "refseq_accession", "lookup_status"]
-    with path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter="	")
-        writer.writeheader()
-        for key in sorted(cache):
-            writer.writerow({k: cache[key].get(k, "") for k in fieldnames})
-
-
-def fetch_ipg_table(accession_version: str, email: str | None, sleep: float) -> pd.DataFrame:
-    params_list = [
-        {"db": "protein", "report": "ipg", "retmode": "text", "val": accession_version},
-        {"db": "protein", "report": "ipg", "retmode": "text", "id": accession_version},
+def run_cdhit(fasta_in: Path, out_prefix: Path, executable: str, cdhit_id: float, cdhit_word: int, cdhit_cov_short: float) -> None:
+    native = shutil.which(executable)
+    cmd_native = [
+        executable,
+        "-i",
+        str(fasta_in),
+        "-o",
+        str(out_prefix),
+        "-c",
+        str(cdhit_id),
+        "-n",
+        str(cdhit_word),
+        "-aS",
+        str(cdhit_cov_short),
+        "-G",
+        "0",
+        "-g",
+        "1",
+        "-d",
+        "0",
     ]
-    headers = {"User-Agent": f"GenPept-Curated-2025-release ({email or 'no-email'})"}
-    last_error: Exception | None = None
-    for params in params_list:
-        try:
-            resp = requests.get(
-                "https://www.ncbi.nlm.nih.gov/sviewer/viewer.fcgi",
-                params=params,
-                headers=headers,
-                timeout=60,
-            )
-            resp.raise_for_status()
-            text = resp.text.strip()
-            if not text:
+    if native:
+        subprocess.run(cmd_native, check=True)
+        return
+    if platform.system().lower().startswith("win"):
+        cmd_wsl = [
+            "wsl",
+            executable,
+            "-i",
+            resolve_wsl_path(fasta_in),
+            "-o",
+            resolve_wsl_path(out_prefix),
+            "-c",
+            str(cdhit_id),
+            "-n",
+            str(cdhit_word),
+            "-aS",
+            str(cdhit_cov_short),
+            "-G",
+            "0",
+            "-g",
+            "1",
+            "-d",
+            "0",
+        ]
+        subprocess.run(cmd_wsl, check=True)
+        return
+    raise RuntimeError("CD-HIT not found in PATH")
+
+
+def parse_cdhit_clusters(clstr_path: Path) -> list[list[str]]:
+    clusters: list[list[str]] = []
+    current: list[str] = []
+    with clstr_path.open("r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            if line.startswith(">Cluster"):
+                if current:
+                    clusters.append(current)
+                current = []
                 continue
-            sep = "	" if "	" in text.splitlines()[0] else ","
-            df = pd.read_csv(io.StringIO(text), sep=sep)
-            if df.empty:
-                continue
-            time.sleep(sleep)
-            return df
-        except Exception as exc:  # pragma: no cover - network path
-            last_error = exc
-            continue
-    if last_error is not None:
-        raise last_error
-    return pd.DataFrame()
+            m = re.search(r">([^|>\s]+)\|", line)
+            if m:
+                current.append(m.group(1))
+    if current:
+        clusters.append(current)
+    return clusters
 
 
-def normalize_ipg_columns(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-    out.columns = [str(c).strip().lower().replace(" ", "_") for c in out.columns]
-    return out
+def build_component_table(df: pd.DataFrame, acc2cluster: dict[str, int]) -> pd.DataFrame:
+    df2 = df.copy()
+    df2["cluster"] = df2["accession_version"].astype(str).map(acc2cluster)
+    if df2["cluster"].isna().any():
+        missing = df2[df2["cluster"].isna()]["accession_version"].head(10).tolist()
+        raise ValueError(f"Some accessions were not mapped to CD-HIT clusters, e.g. {missing}")
+    comp = (
+        df2.groupby(["cluster", "label", "length_bin"]).size().unstack(["label", "length_bin"]).fillna(0).astype(int)
+    )
+    full_cols = pd.MultiIndex.from_product([["AMP", "non-AMP"], BIN_LABELS])
+    comp = comp.reindex(columns=full_cols, fill_value=0)
+    return comp
 
 
-def choose_refseq_accession(ipg_df: pd.DataFrame, taxon_name: str, existing: str) -> str:
-    if existing:
-        return existing
-    if ipg_df.empty or "protein" not in ipg_df.columns:
-        return existing
-    proteins = [str(x).strip() for x in ipg_df["protein"].dropna().tolist()]
-    if taxon_name in {"Bacteria", "Archaea"}:
-        for acc in proteins:
-            if acc.startswith("WP_"):
-                return acc
-    if taxon_name == "Fungi":
-        for acc in proteins:
-            if acc.startswith("NP_") or acc.startswith("XP_"):
-                return acc
-    return existing
-
-
-def lookup_ipg(accession_version: str, taxon_name: str, existing_refseq: str, cache: dict[str, dict[str, str]], email: str | None, sleep: float) -> tuple[str, str, str]:
-    cached = cache.get(accession_version)
-    if cached is not None:
-        return cached.get("ipg_id", ""), cached.get("refseq_accession", ""), cached.get("lookup_status", "")
-
-    ipg_id = ""
-    refseq_accession = existing_refseq or ""
-    lookup_status = "not_found"
-    ipg_df = fetch_ipg_table(accession_version, email=email, sleep=sleep)
-    if not ipg_df.empty:
-        ipg_df = normalize_ipg_columns(ipg_df)
-        if "id" in ipg_df.columns:
-            ipg_id = str(ipg_df["id"].iloc[0]).strip()
-        refseq_accession = choose_refseq_accession(ipg_df, taxon_name=taxon_name, existing=refseq_accession)
-        lookup_status = "ok"
-    cache[accession_version] = {
-        "accession_version": accession_version,
-        "ipg_id": ipg_id,
-        "refseq_accession": refseq_accession,
-        "lookup_status": lookup_status,
-    }
-    return ipg_id, refseq_accession, lookup_status
-
-
-def allocate_balanced_counts(df: pd.DataFrame, target_total: int) -> dict[str, int]:
-    max_bal: dict[str, int] = {}
-    total_bal = 0
+def infer_targets(df: pd.DataFrame) -> dict[str, dict[tuple[str, str], int]]:
+    frac = {k: v / len(df) for k, v in TARGET_SPLIT.items()}
+    bin_tot = df["length_bin"].value_counts().to_dict()
+    split_bin_target: dict[str, dict[str, int]] = {s: {} for s in TARGET_SPLIT}
     for b in BIN_LABELS:
-        c = df[df["length_bin"] == b]["label"].value_counts()
-        m = int(min(c.get("AMP", 0), c.get("non-AMP", 0)))
-        max_bal[b] = 2 * m
-        total_bal += 2 * m
-    if total_bal < target_total:
-        raise RuntimeError(
-            f"Balanced capacity is {total_bal:,}, below target_total={target_total:,}."
-        )
-
-    raw_alloc = {b: target_total * (max_bal[b] / total_bal) for b in BIN_LABELS}
-    alloc = {b: 2 * int(round(raw_alloc[b] / 2)) for b in BIN_LABELS}
-    diff = target_total - sum(alloc.values())
-    room = {b: max_bal[b] - alloc[b] for b in BIN_LABELS}
-    step = 2 if diff > 0 else -2
-    while diff != 0:
-        moved = False
-        for b in sorted(BIN_LABELS, key=lambda x: room[x], reverse=(diff > 0)):
-            if (diff > 0 and room[b] >= 2) or (diff < 0 and alloc[b] >= 2):
-                alloc[b] += step
-                diff -= step
-                moved = True
+        raw = {s: bin_tot.get(b, 0) * frac[s] for s in TARGET_SPLIT}
+        alloc = {s: int(2 * round(raw[s] / 2)) for s in TARGET_SPLIT}
+        diff = int(bin_tot.get(b, 0) - sum(alloc.values()))
+        while diff != 0:
+            moved = False
+            for s in sorted(TARGET_SPLIT, key=lambda x: raw[x] - alloc[x], reverse=(diff > 0)):
+                if diff > 0:
+                    alloc[s] += 2
+                    diff -= 2
+                    moved = True
+                elif alloc[s] >= 2:
+                    alloc[s] -= 2
+                    diff += 2
+                    moved = True
                 if diff == 0:
                     break
-        if not moved:
-            break
-    return alloc
+            if not moved:
+                break
+        for s in TARGET_SPLIT:
+            split_bin_target[s][b] = max(0, alloc[s])
+    needs: dict[str, dict[tuple[str, str], int]] = {s: {} for s in TARGET_SPLIT}
+    for s in TARGET_SPLIT:
+        for b in BIN_LABELS:
+            per_label = split_bin_target[s][b] // 2
+            needs[s][("AMP", b)] = per_label
+            needs[s][("non-AMP", b)] = per_label
+    return needs
 
 
-def write_fasta(path: Path, df: pd.DataFrame) -> None:
-    with path.open("w", encoding="utf-8") as f:
-        for row in df.itertuples(index=False):
-            f.write(f">{row.accession_version}|{row.label}|len:{row.length}\n{row.sequence}\n")
+def score_put(split: str, row: pd.Series, needs: dict[str, dict[tuple[str, str], int]]) -> tuple[int, int]:
+    overflow_penalty = 0
+    fit_score = 0
+    for lab in ["AMP", "non-AMP"]:
+        for b in BIN_LABELS:
+            r = int(row.get((lab, b), 0))
+            deficit = max(0, needs[split][(lab, b)])
+            fit_score += min(r, deficit)
+            overflow_penalty += max(0, r - deficit)
+    split_current = sum(TARGET_SPLIT[split] for _ in [0]) - (sum(needs[split].values()))
+    size_penalty = max(0, split_current + int(row.sum()) - TARGET_SPLIT[split])
+    return (overflow_penalty * 100 + size_penalty * 10, -fit_score)
+
+
+def assign_clusters(comp: pd.DataFrame, needs: dict[str, dict[tuple[str, str], int]], seed: int) -> dict[int, str]:
+    assign: dict[int, str] = {}
+    cluster_order = list(comp.index)
+    rng = random.Random(seed)
+    rng.shuffle(cluster_order)
+    cluster_order.sort(key=lambda cid: tuple(-int(comp.loc[cid].get((lab, b), 0)) for lab in ["AMP", "non-AMP"] for b in BIN_LABELS))
+    for cluster_id in cluster_order:
+        row = comp.loc[cluster_id]
+        best = min(TARGET_SPLIT, key=lambda s: score_put(s, row, needs))
+        assign[int(cluster_id)] = best
+        for lab in ["AMP", "non-AMP"]:
+            for b in BIN_LABELS:
+                r = int(row.get((lab, b), 0))
+                if r > 0:
+                    needs[best][(lab, b)] = max(0, needs[best][(lab, b)] - r)
+    return assign
+
+
+def repair_with_singletons(df: pd.DataFrame, comp: pd.DataFrame, assign: dict[int, str], targets: dict[str, dict[tuple[str, str], int]]) -> dict[int, str]:
+    # Most clusters are singletons; move singleton clusters to fix small off-by-one mismatches.
+    def counts(assign_map: dict[int, str]) -> dict[str, dict[tuple[str, str], int]]:
+        out = {s: {(lab, b): 0 for lab in ["AMP", "non-AMP"] for b in BIN_LABELS} for s in TARGET_SPLIT}
+        for cluster_id, split in assign_map.items():
+            row = comp.loc[cluster_id]
+            for lab in ["AMP", "non-AMP"]:
+                for b in BIN_LABELS:
+                    out[split][(lab, b)] += int(row.get((lab, b), 0))
+        return out
+
+    singleton_clusters = {cid for cid, row in comp.iterrows() if int(row.sum()) == 1}
+    current = counts(assign)
+    for lab in ["AMP", "non-AMP"]:
+        for b in BIN_LABELS:
+            for need_split in TARGET_SPLIT:
+                target = targets[need_split][(lab, b)]
+                while current[need_split][(lab, b)] < target:
+                    donor = next((s for s in TARGET_SPLIT if current[s][(lab, b)] > targets[s][(lab, b)]), None)
+                    if donor is None:
+                        break
+                    moved = False
+                    for cluster_id in singleton_clusters:
+                        if assign.get(int(cluster_id)) != donor:
+                            continue
+                        row = comp.loc[int(cluster_id)]
+                        if int(row.get((lab, b), 0)) != 1:
+                            continue
+                        assign[int(cluster_id)] = need_split
+                        current[donor][(lab, b)] -= 1
+                        current[need_split][(lab, b)] += 1
+                        moved = True
+                        break
+                    if not moved:
+                        break
+    return assign
+
+
+def validate_split_output(df: pd.DataFrame) -> None:
+    observed = df["split"].value_counts().to_dict()
+    for split, expected in TARGET_SPLIT.items():
+        actual = int(observed.get(split, 0))
+        if actual != expected:
+            raise ValueError(f"Split {split} has {actual} sequences; expected {expected}.")
+
+    expected_per_label = {
+        "train": {"AMP": 3850, "non-AMP": 3850},
+        "val": {"AMP": 495, "non-AMP": 495},
+        "test": {"AMP": 1155, "non-AMP": 1155},
+    }
+    observed_labels = df.groupby(["split", "label"]).size().to_dict()
+    for split, label_targets in expected_per_label.items():
+        for label, expected in label_targets.items():
+            actual = int(observed_labels.get((split, label), 0))
+            if actual != expected:
+                raise ValueError(
+                    f"Split {split} / label {label} has {actual} sequences; expected {expected}."
+                )
+
+
+def export_split_files(df: pd.DataFrame, outdir: Path) -> None:
+    release_csv = outdir / "release_cluster_split.csv"
+    df.to_csv(release_csv, index=False)
+    for split in ["train", "val", "test"]:
+        sub = df[df["split"] == split].copy()
+        sub.to_csv(outdir / f"{split}.csv", index=False)
+        records = [
+            SeqRecord(Seq(str(r.sequence)), id=str(r.accession_version), description=f"label={r.label}")
+            for r in sub.itertuples(index=False)
+        ]
+        SeqIO.write(records, str(outdir / f"{split}.fasta"), "fasta")
+    stats = df.groupby(["split", "label", "length_bin"]).size().rename("count").reset_index()
+    stats.to_csv(outdir / "split_summary_by_bin.csv", index=False)
+    cluster_map = df[["accession_version", "cluster", "split"]].copy()
+    cluster_map.to_csv(outdir / "cluster_assignment.csv", index=False)
 
 
 def main() -> int:
@@ -247,208 +303,34 @@ def main() -> int:
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    if args.target_total != 2 * args.target_per_label:
-        print("ERROR: target_total must equal 2 * target_per_label for a balanced release.", file=sys.stderr)
+    df = load_dataset(Path(args.dataset_csv))
+    fasta_in = outdir / "all_11000_for_cdhit.fasta"
+    cdhit_prefix = outdir / f"cdhit_c{args.cdhit_id}_n{args.cdhit_word}"
+    clstr_path = outdir / f"cdhit_c{args.cdhit_id}_n{args.cdhit_word}.clstr"
+
+    write_cdhit_input_fasta(df, fasta_in)
+    run_cdhit(fasta_in, cdhit_prefix, args.cdhit_bin, args.cdhit_id, args.cdhit_word, args.cdhit_cov_short)
+    if not clstr_path.exists():
+        print(f"ERROR: missing CD-HIT cluster file: {clstr_path}", file=sys.stderr)
         return 2
 
-    cache_path = Path(args.ipg_cache) if args.ipg_cache else outdir / "ipg_lookup_cache.tsv"
-    cache = read_cache(cache_path)
+    clusters = parse_cdhit_clusters(clstr_path)
+    acc2cluster = {acc: i for i, members in enumerate(clusters) for acc in members}
+    comp = build_component_table(df, acc2cluster)
+    targets = infer_targets(df)
+    assign = assign_clusters(comp, needs={s: dict(v) for s, v in targets.items()}, seed=args.seed)
+    assign = repair_with_singletons(df, comp, assign, targets)
 
-    df = pd.read_csv(args.input_csv)
-    required = {"accession_version", "description", "sequence"}
-    missing = required - set(df.columns)
-    if missing:
-        print(f"ERROR: input CSV missing columns: {sorted(missing)}", file=sys.stderr)
-        return 2
+    out = df.copy()
+    out["cluster"] = out["accession_version"].map(acc2cluster)
+    out["split"] = out["cluster"].map(assign)
+    validate_split_output(out)
+    export_split_files(out, outdir)
 
-    for col in ["cds_products", "cds_genes", "tax_id", "taxon_name", "refseq_accession"]:
-        if col not in df.columns:
-            df[col] = ""
-
-    df["sequence"] = df["sequence"].map(clean_seq)
-    df["length"] = df["sequence"].map(len)
-    df["qc_status"] = df.apply(lambda r: classify_qc(r, min_len=args.min_len, max_len=args.max_len), axis=1)
-    df[["label", "label_reason"]] = df.apply(lambda r: pd.Series(label_record(r)), axis=1)
-    df["precursor_flag"] = df["qc_status"].eq("flag_precursor")
-
-    precursor_df = df[df["precursor_flag"]].copy()
-    main_df = df[df["qc_status"].eq("pass")].copy()
-
-    ipg_ids: list[str] = []
-    refseq_accessions: list[str] = []
-    lookup_statuses: list[str] = []
-    dedup_keys: list[str] = []
-    dedup_mode_applied: list[str] = []
-
-    for row in main_df.itertuples(index=False):
-        if args.dedup_mode == "ipg":
-            try:
-                ipg_id, refseq_accession, lookup_status = lookup_ipg(
-                    row.accession_version,
-                    taxon_name=str(row.taxon_name or ""),
-                    existing_refseq=str(getattr(row, "refseq_accession", "") or ""),
-                    cache=cache,
-                    email=args.email,
-                    sleep=args.sleep,
-                )
-                if ipg_id:
-                    dedup_key = f"ipg:{ipg_id}"
-                    mode_used = "ipg"
-                elif args.fallback_to_exact:
-                    dedup_key = f"seq:{row.sequence}"
-                    mode_used = "exact_fallback"
-                else:
-                    dedup_key = f"acc:{row.accession_version}"
-                    mode_used = "accession_only"
-            except Exception:
-                if args.fallback_to_exact:
-                    ipg_id, refseq_accession, lookup_status = "", str(getattr(row, "refseq_accession", "") or ""), "fallback_exact"
-                    dedup_key = f"seq:{row.sequence}"
-                    mode_used = "exact_fallback"
-                else:
-                    raise
-        elif args.dedup_mode == "exact":
-            ipg_id, refseq_accession, lookup_status = "", str(getattr(row, "refseq_accession", "") or ""), "not_requested"
-            dedup_key = f"seq:{row.sequence}"
-            mode_used = "exact"
-        else:
-            ipg_id, refseq_accession, lookup_status = "", str(getattr(row, "refseq_accession", "") or ""), "not_requested"
-            dedup_key = f"acc:{row.accession_version}"
-            mode_used = "none"
-
-        ipg_ids.append(ipg_id)
-        refseq_accessions.append(refseq_accession)
-        lookup_statuses.append(lookup_status)
-        dedup_keys.append(dedup_key)
-        dedup_mode_applied.append(mode_used)
-
-    main_df["ipg_id"] = ipg_ids
-    main_df["refseq_accession"] = refseq_accessions
-    main_df["ipg_lookup_status"] = lookup_statuses
-    main_df["dedup_group"] = dedup_keys
-    main_df["dedup_mode_applied"] = dedup_mode_applied
-
-    write_cache(cache_path, cache)
-
-    rep_idx = (
-        main_df.assign(_desc_score=main_df["description"].map(score_description))
-        .sort_values(by=["dedup_group", "_desc_score", "accession_version"])
-        .groupby("dedup_group", sort=False)
-        .head(1)
-        .index
-    )
-    curated_df = main_df.copy()
-    curated_df["is_representative"] = False
-    curated_df.loc[rep_idx, "is_representative"] = True
-    dedup_df = curated_df[curated_df["is_representative"]].copy()
-
-    dedup_df["length_bin"] = pd.cut(
-        dedup_df["length"].astype(int),
-        bins=BIN_EDGES,
-        labels=BIN_LABELS,
-        include_lowest=True,
-    )
-    dedup_df = dedup_df[dedup_df["length_bin"].notna()].copy()
-
-    alloc = allocate_balanced_counts(dedup_df, target_total=args.target_total)
-    parts: list[pd.DataFrame] = []
-    for b in BIN_LABELS:
-        sub = dedup_df[dedup_df["length_bin"] == b]
-        per_label = alloc[b] // 2
-        parts.append(sub[sub["label"] == "AMP"].sample(n=per_label, random_state=args.seed))
-        parts.append(sub[sub["label"] == "non-AMP"].sample(n=per_label, random_state=args.seed))
-    dataset_df = pd.concat(parts, ignore_index=True)
-    dataset_df = dataset_df.sort_values(["label", "length_bin", "accession_version"]).reset_index(drop=True)
-
-    export_cols = [
-        "accession_version",
-        "sequence",
-        "length",
-        "label",
-        "length_bin",
-        "tax_id",
-        "taxon_name",
-        "description",
-        "cds_products",
-        "cds_genes",
-        "ipg_id",
-        "refseq_accession",
-        "precursor_flag",
-    ]
-    metadata_cols = [
-        "accession_version",
-        "description",
-        "sequence",
-        "length",
-        "tax_id",
-        "taxon_name",
-        "cds_products",
-        "cds_genes",
-        "qc_status",
-        "precursor_flag",
-        "label",
-        "label_reason",
-        "ipg_id",
-        "refseq_accession",
-        "ipg_lookup_status",
-        "dedup_group",
-        "dedup_mode_applied",
-        "is_representative",
-    ]
-
-    dataset_path = outdir / "dataset.csv"
-    metadata_path = outdir / "metadata.csv"
-    precursor_path = outdir / "precursor_flagged.csv"
-    manifest_path = outdir / "accession_manifest.tsv"
-    ipg_map_path = outdir / "ipg_mapping.tsv"
-    summary_path = outdir / "dataset_summary_by_bin.csv"
-    attrition_path = outdir / "attrition_summary.csv"
-    all_fasta = outdir / "dataset.fasta"
-    amp_fasta = outdir / "amp_sequences.fasta"
-    nonamp_fasta = outdir / "nonamp_sequences.fasta"
-
-    dataset_df[export_cols].to_csv(dataset_path, index=False)
-    pd.concat([curated_df[metadata_cols], precursor_df.assign(ipg_id="", refseq_accession=precursor_df.get("refseq_accession", ""), ipg_lookup_status="", dedup_group="", dedup_mode_applied="", is_representative=False)[metadata_cols]], ignore_index=True).to_csv(metadata_path, index=False)
-    precursor_df.assign(length=precursor_df["sequence"].map(len)).to_csv(precursor_path, index=False)
-
-    manifest_df = curated_df[["accession_version", "label", "dedup_group", "ipg_id", "refseq_accession", "is_representative"]].copy()
-    manifest_df["selected_in_dataset"] = manifest_df["accession_version"].isin(dataset_df["accession_version"])
-    manifest_df.to_csv(manifest_path, sep="	", index=False)
-    curated_df[["accession_version", "ipg_id", "refseq_accession", "dedup_group", "is_representative"]].drop_duplicates().to_csv(ipg_map_path, sep="	", index=False)
-
-    summary = (
-        dataset_df.groupby(["length_bin", "label"]).size().rename("count").reset_index().pivot(index="length_bin", columns="label", values="count").fillna(0).astype(int).reset_index()
-    )
-    summary["total"] = summary.get("AMP", 0) + summary.get("non-AMP", 0)
-    summary.to_csv(summary_path, index=False)
-
-    attr = [
-        {"step": "raw_input_records", "n": int(len(df))},
-        {"step": "removed_length", "n": int((df["qc_status"] == "fail_length").sum())},
-        {"step": "removed_noncanonical", "n": int((df["qc_status"] == "fail_noncanonical").sum())},
-        {"step": "removed_low_quality_annotation", "n": int((df["qc_status"] == "fail_low_quality_annotation").sum())},
-        {"step": "precursor_flagged", "n": int(len(precursor_df))},
-        {"step": "main_pool_after_qc", "n": int(len(main_df))},
-        {"step": "representatives_after_dedup", "n": int(len(dedup_df))},
-        {"step": "final_dataset_total", "n": int(len(dataset_df))},
-        {"step": "final_dataset_amp", "n": int((dataset_df["label"] == "AMP").sum())},
-        {"step": "final_dataset_nonamp", "n": int((dataset_df["label"] == "non-AMP").sum())},
-    ]
-    pd.DataFrame(attr).to_csv(attrition_path, index=False)
-
-    write_fasta(all_fasta, dataset_df[export_cols])
-    write_fasta(amp_fasta, dataset_df[dataset_df["label"] == "AMP"][export_cols])
-    write_fasta(nonamp_fasta, dataset_df[dataset_df["label"] == "non-AMP"][export_cols])
-
-    print(f"Wrote {dataset_path}")
-    print(f"Wrote {metadata_path}")
-    print(f"Wrote {precursor_path}")
-    print(f"Wrote {manifest_path}")
-    print(f"Wrote {ipg_map_path}")
-    print(f"Wrote {summary_path}")
-    print(f"Wrote {attrition_path}")
-    print(f"Wrote {amp_fasta}")
-    print(f"Wrote {nonamp_fasta}")
+    print(f"Wrote {outdir / 'release_cluster_split.csv'}")
+    print(f"Wrote {outdir / 'train.csv'}")
+    print(f"Wrote {outdir / 'val.csv'}")
+    print(f"Wrote {outdir / 'test.csv'}")
     return 0
 
 
