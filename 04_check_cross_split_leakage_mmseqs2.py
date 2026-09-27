@@ -17,8 +17,10 @@ REQUIRED_BASE = {"sequence", "split"}
 
 
 def parse_args() -> argparse.Namespace:
-    ap = argparse.ArgumentParser(description="Check cross-split homology leakage with MMseqs2.")
-    ap.add_argument("--release-csv", required=True, help="release_cluster_split.csv from step 03")
+    ap = argparse.ArgumentParser(
+        description="Report cross-split high-identity relations under the supplied MMseqs2 settings."
+    )
+    ap.add_argument("--release-csv", required=True, help="Canonical release CSV containing sequence and split")
     ap.add_argument("--outdir", required=True)
     ap.add_argument("--mmseqs-bin", default="mmseqs")
     ap.add_argument("--min-pident", type=float, default=90.0)
@@ -91,9 +93,9 @@ def main() -> int:
     if missing:
         print(f"ERROR: release CSV missing columns: {sorted(missing)}", file=sys.stderr)
         return 2
-    acc_col = "accession_version" if "accession_version" in df.columns else "accession"
+    acc_col = next((c for c in ("sample_id", "accession_version", "accession") if c in df.columns), "")
     if acc_col not in df.columns:
-        print("ERROR: release CSV requires accession_version or accession", file=sys.stderr)
+        print("ERROR: release CSV requires sample_id, accession_version, or accession", file=sys.stderr)
         return 2
 
     fasta_path = outdir / "mmseqs_input.fasta"
@@ -114,24 +116,26 @@ def main() -> int:
         axis=1,
     )
 
-    leaks = hits[
+    relations = hits[
         (hits["pident"] >= args.min_pident)
         & (hits["shorter_cov"] >= args.min_cov)
         & (hits["query_split"] != hits["target_split"])
     ].copy()
 
     all_hits_csv = outdir / "mmseqs_all_pairs.csv"
-    leak_csv = outdir / "mmseqs_cross_split_leaks.csv"
-    summary_txt = outdir / "mmseqs_leak_summary.txt"
+    relation_csv = outdir / "mmseqs_cross_split_high_identity_relations.csv"
+    summary_txt = outdir / "mmseqs_relation_summary.txt"
     hits.to_csv(all_hits_csv, index=False)
-    leaks.to_csv(leak_csv, index=False)
+    relations.to_csv(relation_csv, index=False)
     with summary_txt.open("w", encoding="utf-8") as f:
         f.write(f"all_pairs={len(hits)}\n")
-        f.write(f"cross_split_leaks={len(leaks)}\n")
+        f.write(f"cross_split_high_identity_relations={len(relations)}\n")
         f.write(f"min_pident={args.min_pident}\n")
         f.write(f"min_cov={args.min_cov}\n")
+        f.write("scope=reported_MMseqs2_settings_only\n")
+        f.write("universal_leakage_free_claim=false\n")
     print(f"Wrote {all_hits_csv}")
-    print(f"Wrote {leak_csv}")
+    print(f"Wrote {relation_csv}")
     print(f"Wrote {summary_txt}")
     return 0
 

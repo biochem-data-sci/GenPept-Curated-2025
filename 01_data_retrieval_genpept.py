@@ -1,234 +1,131 @@
 #!/usr/bin/env python3
+"""Execute the preserved ten-branch NCBI Protein query specification.
+
+The query CSV is authoritative. This helper records live counts and can fetch a
+bounded set of GenBank records per branch. Live counts are not frozen results
+because NCBI Protein changes after the original retrieval date.
+"""
+
 from __future__ import annotations
 
 import argparse
 import csv
 import os
-import re
-import sys
 import time
 from pathlib import Path
-from typing import Iterator
 
 from Bio import Entrez, SeqIO
 
-ALLOWED_AA = set("ACDEFGHIKLMNPQRSTVWY")
-TAXA = {
-    "bacteria": {"query": "txid2[orgn]", "taxid": 2, "name": "Bacteria"},
-    "archaea": {"query": "txid2157[orgn]", "taxid": 2157, "name": "Archaea"},
-    "fungi": {"query": "txid4751[orgn]", "taxid": 4751, "name": "Fungi"},
-}
+
+REQUIRED_COLUMNS = {"cohort", "label_branch", "length_bin", "precursor_constraint", "query"}
 
 
 def parse_args() -> argparse.Namespace:
-    ap = argparse.ArgumentParser(
-        description="Retrieve raw GenPept records for the GenPept-10-200-2025 dataset."
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--query-spec",
+        default="reproducibility/query_specification_from_preserved_rules.csv",
+        help="CSV containing the ten preserved executable queries",
     )
-    ap.add_argument("--outdir", required=True, help="Output directory")
-    ap.add_argument("--email", default=os.environ.get("NCBI_EMAIL"), help="NCBI email")
-    ap.add_argument("--date-start", default="2025/04/01", help="Start date (YYYY/MM/DD)")
-    ap.add_argument("--date-end", default="2025/07/31", help="End date (YYYY/MM/DD)")
-    ap.add_argument("--min-len", type=int, default=10)
-    ap.add_argument("--max-len", type=int, default=200)
-    ap.add_argument("--page-retmax", type=int, default=20000)
-    ap.add_argument("--batch-efetch", type=int, default=400)
-    ap.add_argument("--sleep", type=float, default=0.34)
-    ap.add_argument(
-        "--taxa",
-        nargs="+",
-        default=["bacteria", "archaea", "fungi"],
-        help="Subset of: bacteria archaea fungi",
+    parser.add_argument("--outdir", required=True)
+    parser.add_argument("--email", default=os.environ.get("NCBI_EMAIL"))
+    parser.add_argument("--api-key", default=os.environ.get("NCBI_API_KEY"))
+    parser.add_argument(
+        "--fetch-records",
+        action="store_true",
+        help="Fetch GenBank records after counting; omitted by default because the search space is large",
     )
-    return ap.parse_args()
+    parser.add_argument(
+        "--retmax-per-query",
+        type=int,
+        default=0,
+        help="Maximum records fetched per query; 0 is valid only for count-only mode",
+    )
+    parser.add_argument("--batch-size", type=int, default=300)
+    parser.add_argument("--sleep", type=float, default=0.34)
+    return parser.parse_args()
 
 
-def make_query(taxon_term: str, date_start: str, date_end: str, min_len: int, max_len: int) -> str:
-    src_term = "srcdb_genbank[PROP]"
-    len_term = f"{min_len}:{max_len}[SLEN]"
-    date_term = f'("{date_start}"[PDAT] : "{date_end}"[PDAT])'
-    return f"({taxon_term}) AND {date_term} AND {src_term} AND {len_term}"
+def load_spec(path: Path) -> list[dict[str, str]]:
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    if not rows:
+        raise ValueError("Query specification is empty")
+    missing = REQUIRED_COLUMNS - set(rows[0])
+    if missing:
+        raise ValueError(f"Query specification is missing columns: {sorted(missing)}")
+    if len(rows) != 10:
+        raise ValueError(f"Expected exactly 10 preserved query specifications, found {len(rows)}")
+    if any(not row["query"].strip() for row in rows):
+        raise ValueError("Every query row must contain an executable query string")
+    return rows
 
 
-def esearch_count(term: str) -> int:
-    with Entrez.esearch(db="protein", term=term, retmax=0) as handle:
-        rec = Entrez.read(handle)
-    return int(rec.get("Count", "0"))
+def esearch(query: str, retmax: int) -> tuple[int, list[str]]:
+    with Entrez.esearch(db="protein", term=query, retmax=retmax) as handle:
+        record = Entrez.read(handle)
+    return int(record["Count"]), list(record.get("IdList", []))
 
 
-def esearch_all_ids(term: str, page_retmax: int, sleep: float) -> list[str]:
-    total = esearch_count(term)
-    ids: list[str] = []
-    for start in range(0, total, page_retmax):
-        with Entrez.esearch(db="protein", term=term, retstart=start, retmax=page_retmax) as handle:
-            rec = Entrez.read(handle)
-        ids.extend(rec.get("IdList", []))
-        time.sleep(sleep)
-    return ids
-
-
-def iter_fetch_records(id_list: list[str], batch_size: int, sleep: float) -> Iterator:
-    for start in range(0, len(id_list), batch_size):
-        batch = id_list[start : start + batch_size]
-        if not batch:
-            continue
-        with Entrez.efetch(db="protein", id=",".join(batch), rettype="gb", retmode="text") as handle:
-            for rec in SeqIO.parse(handle, "genbank"):
-                yield rec
-        time.sleep(sleep)
-
-
-def clean_seq(seq: str) -> str:
-    return re.sub(r"[\s-]", "", str(seq).strip().upper())
-
-
-def extract_tax_id(rec) -> int | None:
-    for feat in rec.features:
-        if feat.type != "source":
-            continue
-        for x in feat.qualifiers.get("db_xref", []):
-            if x.startswith("taxon:"):
-                try:
-                    return int(x.split(":", 1)[1])
-                except ValueError:
-                    return None
-        break
-    return None
-
-
-def record_to_row(rec) -> dict:
-    accession = rec.annotations.get("accessions", [rec.id])[0]
-    version = rec.annotations.get("sequence_version")
-    accession_version = f"{accession}.{version}" if version and not accession.endswith(f".{version}") else accession
-
-    cds_products: list[str] = []
-    cds_genes: list[str] = []
-    for feat in rec.features:
-        if feat.type != "CDS":
-            continue
-        cds_products.extend(feat.qualifiers.get("product", []))
-        cds_genes.extend(feat.qualifiers.get("gene", []))
-
-    tax_id = extract_tax_id(rec)
-    taxon_name = next((v["name"] for v in TAXA.values() if v["taxid"] == tax_id), f"taxid:{tax_id}" if tax_id else "")
-
-    refseq_accession = ""
-    for x in rec.annotations.get("dbxrefs", []):
-        if x.startswith("RefSeq:"):
-            refseq_accession = x.split(":", 1)[1]
-            break
-
-    sequence = clean_seq(str(rec.seq))
-    return {
-        "accession_version": accession_version,
-        "description": rec.description or "",
-        "sequence": sequence,
-        "length": len(sequence),
-        "contains_only_20aa": all(ch in ALLOWED_AA for ch in sequence),
-        "tax_id": tax_id if tax_id is not None else "",
-        "taxon_name": taxon_name,
-        "refseq_accession": refseq_accession,
-        "cds_products": ";".join(cds_products),
-        "cds_genes": ";".join(cds_genes),
-    }
-
-
-def write_csv(path: Path, rows: list[dict]) -> None:
-    fieldnames = [
-        "accession_version",
-        "description",
-        "sequence",
-        "length",
-        "contains_only_20aa",
-        "tax_id",
-        "taxon_name",
-        "refseq_accession",
-        "cds_products",
-        "cds_genes",
-    ]
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
-
-
-def write_fasta(path: Path, rows: list[dict]) -> None:
-    with path.open("w", encoding="utf-8") as f:
-        for row in rows:
-            f.write(f">{row['accession_version']} taxid={row['tax_id']}\n{row['sequence']}\n")
+def fetch_records(ids: list[str], path: Path, batch_size: int, pause: float) -> int:
+    written = 0
+    with path.open("w", encoding="utf-8") as out:
+        for start in range(0, len(ids), batch_size):
+            batch = ids[start : start + batch_size]
+            with Entrez.efetch(db="protein", id=",".join(batch), rettype="gb", retmode="text") as handle:
+                for record in SeqIO.parse(handle, "genbank"):
+                    SeqIO.write(record, out, "genbank")
+                    written += 1
+            time.sleep(pause)
+    return written
 
 
 def main() -> int:
     args = parse_args()
     if not args.email:
-        print("ERROR: provide --email or set NCBI_EMAIL", file=sys.stderr)
-        return 2
+        raise SystemExit("Provide --email or set NCBI_EMAIL")
+    if args.retmax_per_query < 0:
+        raise SystemExit("--retmax-per-query must be >= 0")
+    if args.fetch_records and args.retmax_per_query == 0:
+        raise SystemExit("Full retrieval is intentionally explicit: set a positive --retmax-per-query")
 
     Entrez.email = args.email
-    Entrez.tool = "GenPept-Curated-2025-release"
+    Entrez.api_key = args.api_key
+    Entrez.tool = "GenPept-Curated-2025-v1.1"
 
+    rows = load_spec(Path(args.query_spec))
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
+    count_rows: list[dict[str, object]] = []
 
-    raw_taxon_rows: list[dict] = []
-    raw_ids: list[str] = []
-    seen_ids: set[str] = set()
-
-    for taxon in args.taxa:
-        taxon_key = taxon.lower()
-        if taxon_key not in TAXA:
-            print(f"ERROR: unsupported taxon preset: {taxon}", file=sys.stderr)
-            return 2
-        meta = TAXA[taxon_key]
-        term = make_query(meta["query"], args.date_start, args.date_end, args.min_len, args.max_len)
-        count = esearch_count(term)
-        raw_taxon_rows.append({"taxon": meta["name"], "raw_records": count})
-        ids = esearch_all_ids(term, page_retmax=args.page_retmax, sleep=args.sleep)
-        for uid in ids:
-            if uid not in seen_ids:
-                raw_ids.append(uid)
-                seen_ids.add(uid)
-
-    rows = [record_to_row(rec) for rec in iter_fetch_records(raw_ids, batch_size=args.batch_efetch, sleep=args.sleep)]
-
-    raw_taxon_csv = outdir / "01_raw_taxon_summary.csv"
-    raw_records_csv = outdir / "01_raw_records.csv"
-    raw_records_fasta = outdir / "01_raw_records.fasta"
-    toc_csv = outdir / "01_toc_left_values.csv"
-
-    total_raw = sum(int(r["raw_records"]) for r in raw_taxon_rows)
-    for row in raw_taxon_rows:
-        row["pct_raw"] = round((row["raw_records"] / total_raw * 100.0), 2) if total_raw else 0.0
-
-    with raw_taxon_csv.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["taxon", "raw_records", "pct_raw"])
-        writer.writeheader()
-        writer.writerows(raw_taxon_rows)
-
-    with toc_csv.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=["raw_records_total", "Bacteria_pct", "Archaea_pct", "Fungi_pct", "date_window", "length_window"],
-        )
-        writer.writeheader()
-        pct = {row["taxon"]: row["pct_raw"] for row in raw_taxon_rows}
-        writer.writerow(
+    for index, row in enumerate(rows, start=1):
+        fetch_limit = args.retmax_per_query if args.fetch_records else 0
+        count, ids = esearch(row["query"], fetch_limit)
+        branch = f"{index:02d}_{row['cohort']}_{row['label_branch']}_{row['length_bin']}".replace("/", "-")
+        fetched = 0
+        if args.fetch_records:
+            fetched = fetch_records(ids, outdir / f"{branch}.gb", args.batch_size, args.sleep)
+        count_rows.append(
             {
-                "raw_records_total": total_raw,
-                "Bacteria_pct": pct.get("Bacteria", 0.0),
-                "Archaea_pct": pct.get("Archaea", 0.0),
-                "Fungi_pct": pct.get("Fungi", 0.0),
-                "date_window": f"{args.date_start} to {args.date_end}",
-                "length_window": f"{args.min_len}-{args.max_len} aa",
+                "query_index": index,
+                "cohort": row["cohort"],
+                "label_branch": row["label_branch"],
+                "length_bin": row["length_bin"],
+                "precursor_constraint": row["precursor_constraint"],
+                "live_count": count,
+                "requested_fetch_cap": fetch_limit,
+                "fetched_records": fetched,
+                "query": row["query"],
             }
         )
+        time.sleep(args.sleep)
 
-    write_csv(raw_records_csv, rows)
-    write_fasta(raw_records_fasta, rows)
-
-    print(f"Wrote {raw_records_csv}")
-    print(f"Wrote {raw_records_fasta}")
-    print(f"Wrote {raw_taxon_csv}")
-    print(f"Wrote {toc_csv}")
+    output = outdir / "query_counts.csv"
+    with output.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(count_rows[0]))
+        writer.writeheader()
+        writer.writerows(count_rows)
+    print(f"Wrote {output}")
     return 0
 
 

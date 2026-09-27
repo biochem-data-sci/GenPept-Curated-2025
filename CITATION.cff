@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use GenPept-Curated-2025, please cite the Zenodo dataset and the associated article when available."
+title: "GenPept-Curated-2025"
+type: dataset
+version: "1.1"
+date-released: 2026-09-27
+authors:
+  - family-names: "Pham"
+    given-names: "Huynh Trong"
+  - family-names: "Nguyen-Vo"
+    given-names: "Thanh-Hoang"
+  - family-names: "Huynh"
+    given-names: "Bao"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.22994107"
+    description: "GenPept-Curated-2025 dataset version 1.1"

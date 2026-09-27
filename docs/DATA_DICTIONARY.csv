@@ -1,0 +1,12 @@
+field,type,allowed_or_range,description
+label,string,AMP or non-AMP,Operational annotation-derived benchmark label. AMP denotes a qualifying GenPept AMP annotation under the documented labeling rule; non-AMP denotes annotation-negative/unlabeled comparison records and must not be interpreted as experimentally confirmed inactivity.
+sequence,string,AA20 amino-acid sequence,Amino-acid sequence supplied for benchmark use.
+length,integer,10-200,Length of sequence in amino-acid residues.
+row_id,integer,0-10999,Unique row-level identifier retained for release traceability.
+sample_id,string,unique,Unique benchmark sample identifier.
+sequence_clean,string,AA20 amino-acid sequence,"Normalized amino-acid sequence used by the curation/evaluation pipeline. In v1.1 it equals sequence for all 11,000 rows."
+len_clean,integer,10-200,"Length of sequence_clean. In v1.1 it equals length for all 11,000 rows."
+cluster_id,string,workflow identifier,Sequence-clustering identifier retained from the processing workflow; not a biological-family label.
+comp_id,integer,connected-component identifier,Operational high-identity connected-component identifier used for component-aware partition control; not a biological-family identifier.
+split,string,train | val | test,Authoritative canonical partition assignment. This is the only field that defines the benchmark partition.
+length_bin,string,10–50 | 51–100 | 101–150 | 151–200,Length stratum used in partitioning and robustness analyses.

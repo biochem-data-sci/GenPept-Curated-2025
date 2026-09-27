@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+.venv/
+venv/
+env/
+outputs/
+benchmark_work/
+benchmark/*_PORTABLE_PREPARED.ipynb
+benchmark/*_EXECUTED.ipynb
+external_data/SSFGM-Model-main/
+external_data/AMPlify/
+external_methods/AmPEP/
+external_methods/AMPScannerV2/
+external_methods/amPEPpy/

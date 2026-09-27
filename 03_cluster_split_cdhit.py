@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# PUBLIC-UPDATE SOURCE NOTE:
+# Preserved from the supplied GitHub workflow. Two operational defaults were aligned
+# to the current manuscript/frozen CSV: seed=42 and recomputation of numeric length
+# bins to avoid Unicode display-label mismatches. No clustering threshold was changed.
+
 from __future__ import annotations
 
 import argparse
@@ -18,17 +23,19 @@ from Bio.SeqRecord import SeqRecord
 BINS = [10, 50, 100, 150, 200]
 BIN_LABELS = ["10-50", "51-100", "101-150", "151-200"]
 TARGET_SPLIT = {"train": 7700, "val": 990, "test": 2310}
+EXPECTED_COMPONENTS = 10666
 
 
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="Run CD-HIT and create cluster-intact train/val/test splits.")
-    ap.add_argument("--dataset-csv", required=True, help="dataset.csv from step 02")
+    ap.add_argument("--dataset-csv", required=True, help="Canonical 11,000-record release CSV")
     ap.add_argument("--outdir", required=True)
     ap.add_argument("--cdhit-bin", default="cd-hit", help="CD-HIT executable name")
     ap.add_argument("--cdhit-id", type=float, default=0.90)
     ap.add_argument("--cdhit-word", type=int, default=5)
     ap.add_argument("--cdhit-cov-short", type=float, default=0.80, help="Coverage threshold on the shorter sequence")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--expected-components", type=int, default=EXPECTED_COMPONENTS)
     return ap.parse_args()
 
 
@@ -48,11 +55,15 @@ def load_dataset(path: Path) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Missing required columns in dataset: {sorted(missing)}")
     if "accession_version" not in df.columns:
-        df["accession_version"] = [f"seq_{i+1:06d}" for i in range(len(df))]
+        if "sample_id" in df.columns:
+            df["accession_version"] = df["sample_id"].astype(str)
+        else:
+            df["accession_version"] = [f"seq_{i+1:06d}" for i in range(len(df))]
     if "length" not in df.columns:
         df["length"] = df["sequence"].astype(str).str.len()
-    if "length_bin" not in df.columns:
-        df["length_bin"] = pd.cut(df["length"], bins=BINS, labels=BIN_LABELS, include_lowest=True)
+    # Recompute operational bins from numeric length. The frozen CSV stores display
+    # labels with en dashes; the splitter uses ASCII labels internally.
+    df["length_bin"] = pd.cut(df["length"], bins=BINS, labels=BIN_LABELS, include_lowest=True)
     df["label"] = df["label"].map(normalize_label)
     expected_total = sum(TARGET_SPLIT.values())
     if len(df) != expected_total:
@@ -279,6 +290,9 @@ def validate_split_output(df: pd.DataFrame) -> None:
                 raise ValueError(
                     f"Split {split} / label {label} has {actual} sequences; expected {expected}."
                 )
+    component_crossing = int((df.groupby("comp_id")["split"].nunique() > 1).sum())
+    if component_crossing != 0:
+        raise ValueError(f"Detected {component_crossing} components crossing splits; expected 0")
 
 
 def export_split_files(df: pd.DataFrame, outdir: Path) -> None:
@@ -294,7 +308,7 @@ def export_split_files(df: pd.DataFrame, outdir: Path) -> None:
         SeqIO.write(records, str(outdir / f"{split}.fasta"), "fasta")
     stats = df.groupby(["split", "label", "length_bin"]).size().rename("count").reset_index()
     stats.to_csv(outdir / "split_summary_by_bin.csv", index=False)
-    cluster_map = df[["accession_version", "cluster", "split"]].copy()
+    cluster_map = df[["accession_version", "comp_id", "split"]].copy()
     cluster_map.to_csv(outdir / "cluster_assignment.csv", index=False)
 
 
@@ -315,6 +329,11 @@ def main() -> int:
         return 2
 
     clusters = parse_cdhit_clusters(clstr_path)
+    if len(clusters) != args.expected_components:
+        raise ValueError(
+            f"Observed {len(clusters)} components; expected {args.expected_components}. "
+            "Do not publish a reconstructed split from mismatched tool/settings."
+        )
     acc2cluster = {acc: i for i, members in enumerate(clusters) for acc in members}
     comp = build_component_table(df, acc2cluster)
     targets = infer_targets(df)
@@ -322,8 +341,8 @@ def main() -> int:
     assign = repair_with_singletons(df, comp, assign, targets)
 
     out = df.copy()
-    out["cluster"] = out["accession_version"].map(acc2cluster)
-    out["split"] = out["cluster"].map(assign)
+    out["comp_id"] = out["accession_version"].map(acc2cluster)
+    out["split"] = out["comp_id"].map(assign)
     validate_split_output(out)
     export_split_files(out, outdir)
 

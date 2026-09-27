@@ -1,0 +1,20 @@
+# Versions explicitly recorded by the authoritative benchmark notebook.
+tensorflow==2.21.0
+scikit-learn==1.9.0
+lightgbm==4.7.0
+fair-esm==2.0.0
+
+# The author environment recorded torch 2.11.0+cu128.
+# Its installation index/channel was not preserved in the supplied files, so
+# install the exact CUDA 12.8 build from the appropriate PyTorch package index.
+# torch==2.11.0+cu128
+
+# Imported by the notebook, but exact main-environment versions were not present
+# in the preserved environment-audit output supplied here:
+numpy
+pandas
+scipy
+matplotlib
+biopython
+jupyter
+nbconvert
