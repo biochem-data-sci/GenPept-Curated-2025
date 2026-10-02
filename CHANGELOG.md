@@ -12,3 +12,9 @@
 - documented required third-party datasets and published-method environments;
 - linked the public dataset DOI `10.5281/zenodo.22994107`;
 - intentionally did not bundle static Tables 2-4, old benchmark outputs, reviewer-response archives, or third-party benchmark sequences.
+
+## Packaging audit corrections - 2026-10-02
+
+- Removed ANSI color escapes from saved notebook tracebacks without changing any source cell, numerical output, error type or error message.
+- Original notebook SHA-256: `62625fc0047a74083ad51ff82167cb0119c9d1679da333379c21fa27d985ca6d`. Output-format-cleaned notebook SHA-256: `97cbc1e680fca5118af5e758d09f3aaa25ea4f5c5c36390105b7ef908c28d4ac`.
+- Recomputed the package manifest and SHA-256 checksums from the actual file bytes. The manifest inventories payload; SHA256SUMS.txt also covers MANIFEST.csv.
