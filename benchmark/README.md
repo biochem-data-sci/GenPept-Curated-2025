@@ -6,7 +6,7 @@ The authoritative benchmark source for the current manuscript is:
 
 SHA-256:
 
-`62625fc0047a74083ad51ff82167cb0119c9d1679da333379c21fa27d985ca6d`
+`97cbc1e680fca5118af5e758d09f3aaa25ea4f5c5c36390105b7ef908c28d4ac`
 
 The notebook contains the final 13-model scope, 10 random seeds (100-109), within-dataset evaluation, and reciprocal cross-dataset evaluation with SSFGM-BD1, AMPlify-balanced, and SSFGM-BD3.
 
