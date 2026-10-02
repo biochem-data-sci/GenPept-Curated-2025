@@ -42,7 +42,7 @@ This generates the length-bin summary and the current three-panel class-composit
 
 ### 3. Prepare the final benchmark source
 
-The authoritative final benchmark notebook supplied by the authors is preserved byte-for-byte at:
+The authoritative final benchmark notebook is provided below with source cells unchanged. ANSI color escapes were removed from saved tracebacks; traceback text and run-status evidence are retained:
 
 ```text
 benchmark/BenchMark17model_AUTHORITATIVE.ipynb
@@ -51,7 +51,7 @@ benchmark/BenchMark17model_AUTHORITATIVE.ipynb
 SHA-256:
 
 ```text
-62625fc0047a74083ad51ff82167cb0119c9d1679da333379c21fa27d985ca6d
+97cbc1e680fca5118af5e758d09f3aaa25ea4f5c5c36390105b7ef908c28d4ac
 ```
 
 The exact production trainer emitted by the final notebook is also preserved:
