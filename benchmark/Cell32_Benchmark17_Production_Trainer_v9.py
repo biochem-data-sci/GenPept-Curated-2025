@@ -1594,7 +1594,7 @@ for _method, (_path, _text) in HELPER_SOURCES.items():
 # RUN EXECUTION
 # ============================================================
 # ============================================================
-# RUN EXECUTION — TRAIN + SOURCE-VALIDATION ONLY
+# RUN EXECUTION - TRAIN + SOURCE-VALIDATION ONLY
 #
 # SCIENTIFIC BOUNDARY
 # -------------------
@@ -2685,7 +2685,7 @@ try:
                         pending_cpu.insert(0, row)
                     TOTAL_ACTIVE_LIMIT_CURRENT = max(1, min(TOTAL_ACTIVE_LIMIT_CURRENT, GPU_MAX_WORKERS_CURRENT + CPU_MAX_WORKERS_CURRENT))
                     print('-' * 128)
-                    print(f'CELL 32 v9 RESOURCE BACKOFF — {run_id}')
+                    print(f'CELL 32 v9 RESOURCE BACKOFF - {run_id}')
                     print(f'returncode             : {rc}')
                     print(f'retry                  : {retry_no}/{MAX_RESOURCE_RETRIES}')
                     print(f'GPU max workers now    : {GPU_MAX_WORKERS_CURRENT}')
@@ -2702,7 +2702,7 @@ try:
                     failure_records.append((run_id, rc, str(rec['log_path']), log_tail))
                     stop_launching = True
                     print('-' * 128)
-                    print(f'CELL 32 v9 WORKER FAILURE — {run_id}')
+                    print(f'CELL 32 v9 WORKER FAILURE - {run_id}')
                     print(f'returncode             : {rc}')
                     print(f'worker log             : {rec["log_path"]}')
                     print(log_tail)

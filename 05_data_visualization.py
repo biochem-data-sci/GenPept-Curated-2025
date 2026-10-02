@@ -22,7 +22,7 @@ import pandas as pd
 from statsmodels.stats.proportion import proportion_confint
 
 BINS = [(10, 50), (51, 100), (101, 150), (151, 200)]
-BIN_LABELS = ["10–50", "51–100", "101–150", "151–200"]
+BIN_LABELS = ["10-50", "51-100", "101-150", "151-200"]
 
 
 def parse_args() -> argparse.Namespace:
@@ -166,10 +166,10 @@ def main() -> None:
     summary = build_summary(df)
 
     expected = {
-        "10–50": (2618, 372, 2246),
-        "51–100": (2379, 1602, 777),
-        "101–150": (2281, 1759, 522),
-        "151–200": (3722, 1767, 1955),
+        "10-50": (2618, 372, 2246),
+        "51-100": (2379, 1602, 777),
+        "101-150": (2281, 1759, 522),
+        "151-200": (3722, 1767, 1955),
     }
     for _, row in summary.iloc[:4].iterrows():
         observed = (int(row["total"]), int(row["AMP"]), int(row["non-AMP"]))

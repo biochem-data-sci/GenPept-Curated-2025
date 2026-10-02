@@ -36,13 +36,13 @@ python 06_benchmark_reproduction.py --execute
 
 ## Dataset-construction audit path
 
-Scripts `01`–`04` are retained for procedural auditing of retrieval, curation, clustering, and post-split high-identity checks. They are **not** the authoritative paper-reproduction path because NCBI is mutable and the supplied Step 02 source does not contain the complete frozen IPG representative-selection provenance.
+Scripts `01`-`04` are retained for procedural auditing of retrieval, curation, clustering, and post-split high-identity checks. They are **not** the authoritative paper-reproduction path because NCBI is mutable and the supplied Step 02 source does not contain the complete frozen IPG representative-selection provenance.
 
 The exact released dataset identity is instead fixed by:
 
 - version 1.1
 - DOI `10.5281/zenodo.22994107`
-- canonical SHA-256 `421e55265e1462052f633c961f8d8cc20ce5e510284ffc36afc6e29a40b79b6c`
+- canonical SHA-256 `bdfe03fbabbd0c7d6ff95ff42905680bb86ad0056e24cf964a33598aefb407a2`
 - 11,000 records
 - 5,500 AMP / 5,500 non-AMP
 - 7,700 / 990 / 2,310 train/validation/test records

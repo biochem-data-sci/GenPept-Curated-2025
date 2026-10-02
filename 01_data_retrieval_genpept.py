@@ -17,7 +17,7 @@ from pathlib import Path
 from Bio import Entrez, SeqIO
 
 
-REQUIRED_COLUMNS = {"cohort", "label_branch", "length_bin", "precursor_constraint", "query"}
+REQUIRED_COLUMNS = {"cohort", "label_branch", "length_range", "precursor_constraint", "query"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -101,7 +101,7 @@ def main() -> int:
     for index, row in enumerate(rows, start=1):
         fetch_limit = args.retmax_per_query if args.fetch_records else 0
         count, ids = esearch(row["query"], fetch_limit)
-        branch = f"{index:02d}_{row['cohort']}_{row['label_branch']}_{row['length_bin']}".replace("/", "-")
+        branch = f"{index:02d}_{row['cohort']}_{row['label_branch']}_{row['length_range']}".replace("/", "-")
         fetched = 0
         if args.fetch_records:
             fetched = fetch_records(ids, outdir / f"{branch}.gb", args.batch_size, args.sleep)
@@ -110,7 +110,7 @@ def main() -> int:
                 "query_index": index,
                 "cohort": row["cohort"],
                 "label_branch": row["label_branch"],
-                "length_bin": row["length_bin"],
+                "length_range": row["length_range"],
                 "precursor_constraint": row["precursor_constraint"],
                 "live_count": count,
                 "requested_fetch_cap": fetch_limit,

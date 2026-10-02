@@ -9,4 +9,4 @@ len_clean,integer,10-200,"Length of sequence_clean. In v1.1 it equals length for
 cluster_id,string,workflow identifier,Sequence-clustering identifier retained from the processing workflow; not a biological-family label.
 comp_id,integer,connected-component identifier,Operational high-identity connected-component identifier used for component-aware partition control; not a biological-family identifier.
 split,string,train | val | test,Authoritative canonical partition assignment. This is the only field that defines the benchmark partition.
-length_bin,string,10–50 | 51–100 | 101–150 | 151–200,Length stratum used in partitioning and robustness analyses.
+length_bin,string,10-50 | 51-100 | 101-150 | 151-200,Length stratum used in partitioning and robustness analyses.

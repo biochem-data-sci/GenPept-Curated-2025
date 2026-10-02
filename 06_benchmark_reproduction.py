@@ -25,7 +25,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-AUTHORITATIVE_NOTEBOOK_SHA256 = "f9e8185de48cebba5c5eb3d0b7748b358d0dfb1ea9d078584bd7f97a58901141"
+AUTHORITATIVE_NOTEBOOK_SHA256 = "62625fc0047a74083ad51ff82167cb0119c9d1679da333379c21fa27d985ca6d"
 SUPERSEDED_CELL_INDICES = {31, 32}  # Cell 32 v4 and v8; Cell 32 v9 is index 33.
 ORIGINAL_PROJECT_ROOT = "/mnt/d/SUABAI_GenPept-Curated-2025_ 12.8.2026"
 ORIGINAL_WORK_ROOT = "/home/pc/genpept_benchmark17_work"

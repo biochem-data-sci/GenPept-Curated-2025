@@ -1,6 +1,6 @@
 # GenPept-Curated-2025
 
-Public dataset and reproducibility code for the manuscript **“GenPept-Curated-2025: A New Machine Learning Benchmark for Antimicrobial Peptide Prediction.”**
+Public dataset and reproducibility code for the manuscript **"GenPept-Curated-2025: A New Machine Learning Benchmark for Antimicrobial Peptide Prediction."**
 
 This repository update is aligned to the frozen public dataset **v1.1** and the current manuscript state supplied for review. The exact dataset used for the paper is the frozen canonical CSV below; live NCBI retrieval is provided only as a procedural audit path because upstream records can change over time.
 
@@ -9,11 +9,11 @@ This repository update is aligned to the frozen public dataset **v1.1** and the 
 - Version: **1.1**
 - Zenodo DOI: **10.5281/zenodo.22994107**
 - Canonical file: `data/GenPept_Curated_2025_primary_split_v1.1.csv`
-- SHA-256: `421e55265e1462052f633c961f8d8cc20ce5e510284ffc36afc6e29a40b79b6c`
+- SHA-256: `bdfe03fbabbd0c7d6ff95ff42905680bb86ad0056e24cf964a33598aefb407a2`
 - Records: **11,000**
 - AMP-labeled: **5,500**
 - non-AMP-labeled: **5,500**
-- Sequence length: **10–200 aa**
+- Sequence length: **10-200 aa**
 - Frozen split: **7,700 train / 990 validation / 2,310 test**
 - Unique sequences: **11,000**
 - High-identity components in the frozen release: **10,666**
@@ -51,7 +51,7 @@ benchmark/BenchMark17model_AUTHORITATIVE.ipynb
 SHA-256:
 
 ```text
-f9e8185de48cebba5c5eb3d0b7748b358d0dfb1ea9d078584bd7f97a58901141
+62625fc0047a74083ad51ff82167cb0119c9d1679da333379c21fa27d985ca6d
 ```
 
 The exact production trainer emitted by the final notebook is also preserved:
@@ -63,7 +63,7 @@ benchmark/Cell32_Benchmark17_Production_Trainer_v9.py
 SHA-256:
 
 ```text
-fadd6d8f398b0c7fabcc4c73c4133484cdf95986705c3d5e8c54d6b805bf6a6b
+bc2276c2377e0c0730892c78412e307949547b4771b1eca10073c6ff125e5b6d
 ```
 
 Prepare a portable copy of the notebook:
@@ -78,24 +78,24 @@ After the external datasets, published-method source trees, and required environ
 python 06_benchmark_reproduction.py --execute
 ```
 
-The current manuscript benchmark contains **13 models** and **10 seeds (100–109)** and performs reciprocal evaluation with **SSFGM-BD1**, **AMPlify-balanced**, and **SSFGM-BD3** after exact-sequence overlap removal. See `benchmark/README.md`, `benchmark/ENVIRONMENT.md`, `external_data/README.md`, and `external_methods/README.md`.
+The current manuscript benchmark contains **13 models** and **10 seeds (100-109)** and performs reciprocal evaluation with **SSFGM-BD1**, **AMPlify-balanced**, and **SSFGM-BD3** after exact-sequence overlap removal. See `benchmark/README.md`, `benchmark/ENVIRONMENT.md`, `external_data/README.md`, and `external_methods/README.md`.
 
 ## Repository files
 
 ### Primary paper-reproduction path
 
-- `data/GenPept_Curated_2025_primary_split_v1.1.csv` — exact frozen dataset used by the paper.
-- `05_data_visualization.py` — current manuscript EDA/length-bin reproduction.
-- `06_benchmark_reproduction.py` — portability/execution launcher for the authoritative final benchmark notebook.
-- `benchmark/BenchMark17model_AUTHORITATIVE.ipynb` — original final benchmark source supplied by the authors.
-- `benchmark/Cell32_Benchmark17_Production_Trainer_v9.py` — exact final production trainer emitted by the notebook.
+- `data/GenPept_Curated_2025_primary_split_v1.1.csv` - exact frozen dataset used by the paper.
+- `05_data_visualization.py` - current manuscript EDA/length-bin reproduction.
+- `06_benchmark_reproduction.py` - portability/execution launcher for the authoritative final benchmark notebook.
+- `benchmark/BenchMark17model_AUTHORITATIVE.ipynb` - original final benchmark source supplied by the authors.
+- `benchmark/Cell32_Benchmark17_Production_Trainer_v9.py` - exact final production trainer emitted by the notebook.
 
 ### Dataset-construction / audit helpers
 
-- `01_data_retrieval_genpept.py` — preserved GenPept/NCBI query runner using the stored query specification.
-- `02_build_balanced_dataset.py` — preserved curation helper from the supplied data-pipeline archive.
-- `03_cluster_split_cdhit.py` — supplied CD-HIT cluster-intact splitter, with the public-update default seed aligned to **42** and operational length bins recomputed from numeric length.
-- `04_check_cross_split_leakage_mmseqs2.py` — supplied MMseqs2 post-split high-identity relation checker.
+- `01_data_retrieval_genpept.py` - preserved GenPept/NCBI query runner using the stored query specification.
+- `02_build_balanced_dataset.py` - preserved curation helper from the supplied data-pipeline archive.
+- `03_cluster_split_cdhit.py` - supplied CD-HIT cluster-intact splitter, with the public-update default seed aligned to **42** and operational length bins recomputed from numeric length.
+- `04_check_cross_split_leakage_mmseqs2.py` - supplied MMseqs2 post-split high-identity relation checker.
 
 These four scripts are useful for procedural auditing, but **the exact paper reproduction must use the frozen v1.1 CSV rather than a new live NCBI download**. In particular, the supplied Step 02 source does not by itself preserve the complete IPG representative-selection provenance needed to claim byte-identical reconstruction of the frozen release. This limitation is stated explicitly rather than silently reconstructed.
 

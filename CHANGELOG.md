@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.1 — 2026-09-27
+## v1.1 - 2026-09-27
 
 - aligned the public repository to the frozen Zenodo v1.1 canonical dataset;
 - replaced old convenience data with the canonical 11,000-record CSV;
@@ -11,4 +11,4 @@
 - added a portable benchmark launcher without rewriting model logic;
 - documented required third-party datasets and published-method environments;
 - linked the public dataset DOI `10.5281/zenodo.22994107`;
-- intentionally did not bundle static Tables 2–4, old benchmark outputs, reviewer-response archives, or third-party benchmark sequences.
+- intentionally did not bundle static Tables 2-4, old benchmark outputs, reviewer-response archives, or third-party benchmark sequences.

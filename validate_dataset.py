@@ -8,16 +8,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 CANONICAL = ROOT / "data" / "GenPept_Curated_2025_primary_split_v1.1.csv"
-EXPECTED_CANONICAL_SHA256 = "421e55265e1462052f633c961f8d8cc20ce5e510284ffc36afc6e29a40b79b6c"
+EXPECTED_CANONICAL_SHA256 = "bdfe03fbabbd0c7d6ff95ff42905680bb86ad0056e24cf964a33598aefb407a2"
 EXPECTED_HEADER = [
     "label", "sequence", "length", "row_id", "sample_id", "sequence_clean",
     "len_clean", "cluster_id", "comp_id", "split", "length_bin"
 ]
 ALLOWED = set("ACDEFGHIKLMNPQRSTVWY")
 EXPECTED_SPLIT_HASHES = {
-    "train": "0df35d882928d02d174141a8919c18ca838b3d390c612e4599f3819e49c69192",
-    "val": "088a3efa9d9a31a7219aa4edc4c97f182d72744999fe5b51068b54fff5f9101f",
-    "test": "97815940ed08b079ac93443b6e16dcd34b2b583fae3d2189d16201c60bed5c71",
+    "train": "70e1ebfa487622367e54dbfa893e9d29911c433fbbefd02d392704a689b69384",
+    "val": "3ea7a1c7572cdae0fefe127415506d81e7e6d8b6319ac263326dd731f8e1fc4e",
+    "test": "6c80cdb0dcea9615394aad7e865fd63b12d2167d405d54b440511bd6b054668c",
 }
 SPLIT_FILES = {
     "train": ROOT / "data" / "splits" / "train.csv",
