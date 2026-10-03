@@ -137,3 +137,9 @@ No repository-wide software license is asserted here because a code license was 
 Dataset DOI: **https://doi.org/10.5281/zenodo.22994107**
 
 A machine-readable citation file is provided as `CITATION.cff`.
+
+## Official synchronized v1.1 package
+
+The official archive is `GenPept-Curated-2025_ZENODO_DATASET_v1.1_Final.zip`. Local distribution, [GitHub Release v1.1](https://github.com/biochem-data-sci/GenPept-Curated-2025/releases/tag/v1.1) and [Zenodo version 1.1](https://zenodo.org/records/22994107) publish the same package contents. GitHub main and tag v1.1 carry the same relative paths and file bytes. MANIFEST.csv inventories payload files; SHA256SUMS.txt also covers MANIFEST.csv and excludes itself to avoid a checksum cycle. Archive-container hashes are recorded by the release service and accompanying verification report.
+
+The preserved dataset QA and integrity records are in `validation/`; the current record metadata are in `ZENODO_METADATA.md`. The source-rights notice and dictionary remain in `docs/`. Scientific sequences, labels, partitions, benchmark source cells and meaningful saved outputs are unchanged by this packaging synchronization.

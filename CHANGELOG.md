@@ -18,3 +18,10 @@
 - Removed ANSI color escapes from saved notebook tracebacks without changing any source cell, numerical output, error type or error message.
 - Original notebook SHA-256: `62625fc0047a74083ad51ff82167cb0119c9d1679da333379c21fa27d985ca6d`. Output-format-cleaned notebook SHA-256: `97cbc1e680fca5118af5e758d09f3aaa25ea4f5c5c36390105b7ef908c28d4ac`.
 - Recomputed the package manifest and SHA-256 checksums from the actual file bytes. The manifest inventories payload; SHA256SUMS.txt also covers MANIFEST.csv.
+
+## v1.1 packaging synchronization - 2026-10-03
+
+- Unified local, GitHub main/tag/release and Zenodo package contents under one official archive filename.
+- Retained the public dataset QA and integrity provenance in validation/ and recorded current Zenodo metadata.
+- Regenerated manifest and SHA256 checksums from final payload bytes.
+- Kept the canonical CSV, direct split files, scientific source cells and meaningful saved outputs unchanged.
