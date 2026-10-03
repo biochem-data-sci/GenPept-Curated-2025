@@ -1,0 +1,52 @@
+{
+  "status": "PASS",
+  "source_membership_sha256": "d4fa256cbaa255adb49112e0a95122ae2a4da98e1bcadecc2f9965ed04fc5e0f",
+  "source_membership_note": "SHA-256 of the frozen internal canonical source used to establish membership. The public CSV preserves the same 11,000-row membership while excluding deprecated internal split metadata.",
+  "public_dataset": "data/GenPept_Curated_2025_primary_split_v1.1.csv",
+  "public_dataset_sha256": "bdfe03fbabbd0c7d6ff95ff42905680bb86ad0056e24cf964a33598aefb407a2",
+  "rows": 11000,
+  "unique_sequences": 11000,
+  "unique_sample_ids": 11000,
+  "split_counts": {
+    "train": 7700,
+    "test": 2310,
+    "val": 990
+  },
+  "label_counts": {
+    "AMP": 5500,
+    "non-AMP": 5500
+  },
+  "components": 10666,
+  "component_crossing": 0,
+  "authoritative_partition_field": "split",
+  "deprecated_internal_split_fields_present": false,
+  "split_files": {
+    "train": {
+      "file": "data/splits/train.csv",
+      "rows": 7700,
+      "sha256": "70e1ebfa487622367e54dbfa893e9d29911c433fbbefd02d392704a689b69384",
+      "label_counts": {
+        "AMP": 3850,
+        "non-AMP": 3850
+      }
+    },
+    "val": {
+      "file": "data/splits/validation.csv",
+      "rows": 990,
+      "sha256": "3ea7a1c7572cdae0fefe127415506d81e7e6d8b6319ac263326dd731f8e1fc4e",
+      "label_counts": {
+        "AMP": 495,
+        "non-AMP": 495
+      }
+    },
+    "test": {
+      "file": "data/splits/test.csv",
+      "rows": 2310,
+      "sha256": "6c80cdb0dcea9615394aad7e865fd63b12d2167d405d54b440511bd6b054668c",
+      "label_counts": {
+        "AMP": 1155,
+        "non-AMP": 1155
+      }
+    }
+  }
+}

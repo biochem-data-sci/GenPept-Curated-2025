@@ -1,0 +1,63 @@
+{
+  "status": "PASS",
+  "package_scope": "Unified GenPept-Curated-2025 v1.1 dataset and reproducibility release",
+  "version": "v1.1",
+  "canonical_file": "data/GenPept_Curated_2025_primary_split_v1.1.csv",
+  "canonical_sha256": "bdfe03fbabbd0c7d6ff95ff42905680bb86ad0056e24cf964a33598aefb407a2",
+  "rows": 11000,
+  "columns": [
+    "label",
+    "sequence",
+    "length",
+    "row_id",
+    "sample_id",
+    "sequence_clean",
+    "len_clean",
+    "cluster_id",
+    "comp_id",
+    "split",
+    "length_bin"
+  ],
+  "null_cells": 0,
+  "unique_sequences": 11000,
+  "unique_sample_ids": 11000,
+  "unique_row_ids": 11000,
+  "label_counts": {
+    "AMP": 5500,
+    "non-AMP": 5500
+  },
+  "split_counts": {
+    "train": 7700,
+    "test": 2310,
+    "val": 990
+  },
+  "split_label_counts": {
+    "test/AMP": 1155,
+    "test/non-AMP": 1155,
+    "train/AMP": 3850,
+    "train/non-AMP": 3850,
+    "val/AMP": 495,
+    "val/non-AMP": 495
+  },
+  "length_range": [
+    10,
+    200
+  ],
+  "sequence_equals_sequence_clean": true,
+  "length_equals_len_clean": true,
+  "sequence_length_consistent": true,
+  "aa20_only": true,
+  "components": 10666,
+  "component_crossing_count": 0,
+  "split_files_exact_direct_subsets": true,
+  "legacy_dataset_candidates_included": false,
+  "analysis_code_or_model_results_included": true,
+  "source_public_dataset_note": "Historical SHA-256 of the preserved predeposit source before punctuation correction; canonical_sha256 identifies the current public CSV.",
+  "source_git_repository": "https://github.com/biochem-data-sci/GenPept-Curated-2025",
+  "source_git_canonical_sha256": "bdfe03fbabbd0c7d6ff95ff42905680bb86ad0056e24cf964a33598aefb407a2",
+  "included_analysis_scope": "Dataset-construction helpers, authoritative benchmark source and saved scientific outputs; no additional benchmark rerun was performed.",
+  "historical_source_git_commit": "9a67cdf2ad1657f9861e5c2ba69d9d0620be2821",
+  "historical_source_release": "GenPept-Curated-2025_TECHNICALLY_VALIDATED_PREDEPOSIT.zip",
+  "historical_source_public_dataset_sha256": "421e55265e1462052f633c961f8d8cc20ce5e510284ffc36afc6e29a40b79b6c",
+  "source_git_commit_note": "historical_source_git_commit identifies the earlier source checkpoint, not the current synchronized release tag."
+}

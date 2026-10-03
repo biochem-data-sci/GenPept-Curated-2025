@@ -1,0 +1,31 @@
+{
+  "status": "PASS",
+  "source_membership_sha256": "d4fa256cbaa255adb49112e0a95122ae2a4da98e1bcadecc2f9965ed04fc5e0f",
+  "public_dataset_file": "data/GenPept_Curated_2025_primary_split_v1.1.csv",
+  "public_dataset_sha256": "bdfe03fbabbd0c7d6ff95ff42905680bb86ad0056e24cf964a33598aefb407a2",
+  "rows": 11000,
+  "unique_sequences": 11000,
+  "unique_sample_ids": 11000,
+  "split_counts": {
+    "train": 7700,
+    "test": 2310,
+    "val": 990
+  },
+  "split_label_counts": {
+    "test/AMP": 1155,
+    "test/non-AMP": 1155,
+    "train/AMP": 3850,
+    "train/non-AMP": 3850,
+    "val/AMP": 495,
+    "val/non-AMP": 495
+  },
+  "components": 10666,
+  "component_crossing": 0,
+  "mmseqs2_saved_audit": {
+    "min_percent_identity": 90.0,
+    "min_shorter_sequence_coverage": 0.8,
+    "cross_directed": 0,
+    "cross_undirected_unique": 0,
+    "scope_note": "The zero count is specific to the saved/reported MMseqs2 audit and reported settings. Separate CD-HIT-2D operational screens in results use a different implementation/definition and are not interchangeable."
+  }
+}
